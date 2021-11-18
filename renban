@@ -1,0 +1,192 @@
+#!/bin/bash
+
+set -Ceu
+
+SCRIPT_FILE_NAME=$(basename $0)
+SCRIPT_NAME=${SCRIPT_FILE_NAME%.*}
+SELF=$(cd $(dirname $0); pwd)
+LOGGING=false
+VERSION="0.j.0"
+SEPARATER='---------------------------'
+
+function _usage() {
+    echo "Usage: ${SCRIPT_NAME} [OPTIONS] [DIRECTORY]"
+    echo "  This script is to rename files to sequential numbers in bulk"
+    echo
+    echo "Options:"
+    echo "  -h, --help                     Show help"
+    echo "  -v, --version                  Show script version"
+    echo "  -e, --extension ARG            Specify the target file extension"
+#    echo "  -b, --long-b [ARG]             Either with or without argument is possible"
+#    echo "  -c, --long-c                   Option without argument"
+    echo "  -r                             Subfolders will also be handled recursively."
+    echo "      --cold-run                 Run as cold run. No actual file renaming"
+    echo "      --verbose                  Print various logging information"
+    echo
+    exit 0
+}
+
+function _log() {
+    ${LOGGING} && echo "$@" || return 0
+}
+
+function _err() {
+    echo "${SCRIPT_NAME}: $1" && exit 1
+}
+
+function _args_count() {
+    echo ${#ARG_VALUES[@]}
+}
+
+function _is_exist() {
+    [ -f $1 ] || [ -d $1 ] || [[ $(type $1) ]]
+}
+
+# -------------------------------------------------------------
+
+function _verbose() {
+    _log "DIR: ${DIR}"
+    _log "EXT: ${EXT[@]}"
+    _log "MAXDEPTH: ${MAXDEPTH}"
+    _log "IS_COLD_RUN: ${IS_COLD_RUN}"
+    _log "${SEPARATER}"
+}
+
+ARG_VALUES=()
+DIR=''
+#EXT="(JPG jpg jpeg PNG png TIFF TIF tiff tif CR2 NEF ARW MOV mov AVI avi MPG mpg mp4)"
+EXT=('')
+MAXDEPTH=1
+IS_COLD_RUN=false
+
+function _main() {
+    STASH_IFS=${IFS}; IFS=$'\n'
+
+    ${IS_COLD_RUN} && echo "[${SCRIPT_NAME}] EXEC as COLD RUN >>>"
+
+    local current_dir=''
+    local counter=1
+
+
+    echo $(echo ${EXT[@]} | sed 's: :|:g')
+
+    for file in $(\
+
+        find -E ${DIR} \
+                -type f \
+                -maxdepth ${MAXDEPTH} \
+                -regex "^.*\.($(echo ${EXT[@]} | sed 's: :|:g'))$" | sort); do
+
+        if [ "$(dirname ${file})" != "${current_dir}" ]; then
+            current_dir=$(dirname ${file})
+            counter=1
+        fi
+        local renban=$(printf "%06d\n" "${counter}")
+        echo "[${SCRIPT_NAME}] ${file} ===> $(dirname ${file})/${renban}.${file##*.}"
+        ! ${IS_COLD_RUN} && {
+            mv -n "${file}" "$(dirname ${file})/${renban}.${file##*.}"
+        }
+        : $((counter++))
+    done
+    IFS=${STASH_IFS}
+}
+
+# -------------------------------------------------------------
+
+function _analyse_args_and_options() {
+    while (( $# > 0 )); do
+        case $1 in
+            -h | --help)
+                _usage
+                exit 1
+                ;;
+            -v | --version)
+                echo ${SCRIPT_NAME} v${VERSION}
+                exit 0
+                ;;
+            --verbose)
+                LOGGING=true
+                shift
+                ;;
+
+            # Must have argument
+            -e | --extension)
+                set +u
+                if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
+                    _err "-e option requires a value."
+                fi
+                set -u
+                EXT+=($2)
+                shift 2
+                ;;
+
+#            # Either with or without argument is possible
+#            -b | --long-b)
+#                set +u
+#                if [[ -z "$2" ]] || [[ "$2" =~ ^-+ ]]; then
+#                    shift
+#                else
+#                    OPT_B=$2
+#                    shift 2
+#                fi
+#                set -u
+#                ;;
+
+            # no argument
+            -r)
+                MAXDEPTH=1000
+                shift 1
+                ;;
+
+            # after this all args include '-xx', will treat arg value
+            -- | -)
+                shift 1
+                ARG_VALUES+=( "$@" )
+                break
+                ;;
+
+            # for true or false flags, no argument
+            --*)
+                if [[ "$1" =~ 'cold-run' ]]; then
+                    IS_COLD_RUN='true'
+                fi
+                shift
+                ;;
+
+#            # for true or false flags, no argument
+#            -*)
+#                if [[ "$1" =~ 'p' ]]; then
+#                    IS_FLAG_P='true'
+#                fi
+#                shift
+#                ;;
+
+            # arguments
+            *)
+                ARG_VALUES+=("$1")
+                shift
+                ;;
+        esac
+    done
+}
+
+function _set_static_var() {
+    DIR=${ARG_VALUES:=.}
+}
+
+function _verify_static_var() {
+    :
+}
+
+# -------------------------------------------------------------
+# Main Routine
+# -------------------------------------------------------------
+_analyse_args_and_options $@ && {
+    _set_static_var && _verify_static_var && {
+        _verbose
+        _log 'start main process..' && _log "${SEPARATER}"
+        _main
+    }
+}
+
+exit 0
